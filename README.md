@@ -1,11 +1,20 @@
-# IF YOU FIND A BUG, PLEASE TEXT ME AT DISCORD: thesamefabius
+## Modernized Version (v1.1.0)
+This fork is a modernized and maintained version of the original Mini Admin.
+
+### What's New:
+- Updated to .NET 8.0.
+- Compatible with latest CounterStrikeSharp v1.0.364 and above.
+- Added support for 17 languages (English, Hungarian, Russian, etc.).
+- Bug Fixes: 
+  - Fixed map name prefix stripping (`ws:` maps now display correctly).
+  - Improved database async stability.
 
 # cs2-MiniAdmin
 Adds basic administrator functions
 
 # Installation
 1. Install [CounterStrike Sharp](https://github.com/roflmuffin/CounterStrikeSharp) and [Metamod:Source](https://www.sourcemm.net/downloads.php/?branch=master)
-3. Download [MiniAdmin](https://github.com/partiusfabaa/cs2-MiniAdmin/releases/tag/v1.0.0)
+3. Download [MiniAdmin](https://github.com/lovasatt/cs2-MiniAdmin/releases/tag/v1.1.0)
 4. Unzip the archive and upload it to the game server
 
 # Commands
@@ -79,3 +88,4 @@ database.json
 maps.txt
 You just put the name of your maps here.
 ```
+Original project: https://github.com/partiusfabaa/cs2-MiniAdmin

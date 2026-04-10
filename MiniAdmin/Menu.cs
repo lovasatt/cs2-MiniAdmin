@@ -34,79 +34,77 @@ public class Menu
     public void CreateMenu()
     {
         var adminMenu = new ChatMenu(_baseAdmin.Prefix);
-        adminMenu.AddMenuOption("Slay players", (player, _) =>
+        adminMenu.AddMenuOption(_baseAdmin.Localizer["menu.slay_players"], (player, _) =>
         {
             if (_baseAdmin.CheckingForAdminAndFlag(player, AdminFlag.Slay))
             {
                 CreateSlayMenu();
-                ChatMenus.OpenMenu(player, _slayMenu);
+                MenuManager.OpenChatMenu(player, _slayMenu);
             }
         });
-        adminMenu.AddMenuOption("Kick players", (player, _) =>
+        adminMenu.AddMenuOption(_baseAdmin.Localizer["menu.kick_players"], (player, _) =>
         {
             if (_baseAdmin.CheckingForAdminAndFlag(player, AdminFlag.Kick))
             {
                 CreateKickMenu();
-                ChatMenus.OpenMenu(player, _kickMenu);
+                MenuManager.OpenChatMenu(player, _kickMenu);
             }
         });
-        adminMenu.AddMenuOption("Mute players", (player, _) =>
+        adminMenu.AddMenuOption(_baseAdmin.Localizer["menu.mute_players"], (player, _) =>
         {
             if (_baseAdmin.CheckingForAdminAndFlag(player, AdminFlag.Generic))
             {
                 CreateMuteMenu();
-                ChatMenus.OpenMenu(player, _muteMenu);
+                MenuManager.OpenChatMenu(player, _muteMenu);
             }
         });
-        adminMenu.AddMenuOption("Ban players", (player, _) =>
+        adminMenu.AddMenuOption(_baseAdmin.Localizer["menu.ban_players"], (player, _) =>
         {
             if (_baseAdmin.CheckingForAdminAndFlag(player, AdminFlag.Ban))
             {
                 CreateBanMenu();
-                ChatMenus.OpenMenu(player, _banMenu);
+                MenuManager.OpenChatMenu(player, _banMenu);
             }
         });
-        adminMenu.AddMenuOption("Change map", (player, _) =>
+        adminMenu.AddMenuOption(_baseAdmin.Localizer["menu.change_map"], (player, _) =>
         {
             if (_baseAdmin.CheckingForAdminAndFlag(player, AdminFlag.Changemap))
             {
                 CreateChangeMapMenu();
-                ChatMenus.OpenMenu(player, _changeMapMenu);
+                MenuManager.OpenChatMenu(player, _changeMapMenu);
             }
         });
-        adminMenu.AddMenuOption("Add Admin", (player, _) =>
+        adminMenu.AddMenuOption(_baseAdmin.Localizer["menu.add_admin"], (player, _) =>
         {
             if (_baseAdmin.CheckingForAdminAndFlag(player, AdminFlag.Root))
             {
                 CreateAddAdminMenu();
-                ChatMenus.OpenMenu(player, _addAdminMenu);
+                MenuManager.OpenChatMenu(player, _addAdminMenu);
             }
         });
-
         _baseAdmin.AddCommand("css_admin", "admin menu", (player, info) =>
         {
             if (player == null) return;
             if (!_baseAdmin.IsAdmin(player.Index))
             {
-                _baseAdmin.PrintToChat(player, "you do not have access to this command");
+                _baseAdmin.PrintToChat(player, _baseAdmin.Localizer["no_access"]);
                 return;
             }
 
-            ChatMenus.OpenMenu(player, adminMenu);
+            MenuManager.OpenChatMenu(player, adminMenu);
         });
     }
 
     private void CreateSlayMenu()
     {
         var playerEntities =
-            Utilities.GetPlayers().Where(u => u.PlayerPawn.Value != null && u.PlayerPawn.Value.IsValid);
+            Utilities.GetPlayers().Where(u => u.PlayerPawn?.Value != null && u.PlayerPawn.Value.IsValid);
         _slayMenu.MenuOptions.Clear();
-        _slayMenu.AddMenuOption("Pick a player", (_, _) => { }, true);
-        _slayMenu.AddMenuOption("All", (controller, option) =>
+        _slayMenu.AddMenuOption(_baseAdmin.Localizer["menu.pick_player"], (_, _) => { }, true);
+        _slayMenu.AddMenuOption(_baseAdmin.Localizer["menu.all"], (controller, option) =>
         {
             foreach (var player in playerEntities)
-                if (player.PlayerPawn.Value != null)
-                    player.PlayerPawn.Value.CommitSuicide(true, true);
+                player.PlayerPawn?.Value?.CommitSuicide(true, true);
         });
         foreach (var player in playerEntities)
         {
@@ -118,16 +116,15 @@ public class Menu
                 if (parts.Length < 2) return;
                 var target = Utilities.GetPlayerFromIndex(int.Parse(parts[1]));
 
-                if (!target.PawnIsAlive)
+                if (target == null || !target.PawnIsAlive)
                 {
-                    _baseAdmin.PrintToChat(controller, "The player is already dead");
+                    _baseAdmin.PrintToChat(controller, _baseAdmin.Localizer["player.dead_or_invalid"]);
                     return;
                 }
 
-                if (target.PlayerPawn.Value != null)
-                    target.PlayerPawn.Value.CommitSuicide(true, true);
+                target.PlayerPawn?.Value?.CommitSuicide(true, true);
 
-                _baseAdmin.PrintToChatAll($"{controller.PlayerName}: Player '{target.PlayerName}' has been killed");
+                _baseAdmin.PrintToChatAll(_baseAdmin.Localizer["slay.killed_by", controller.PlayerName, target.PlayerName]);
             });
         }
     }
@@ -135,7 +132,7 @@ public class Menu
     private void CreateKickMenu()
     {
         _kickMenu.MenuOptions.Clear();
-        _kickMenu.AddMenuOption("Pick a player", (_, _) => { }, true);
+        _kickMenu.AddMenuOption(_baseAdmin.Localizer["menu.pick_player"], (_, _) => { }, true);
         foreach (var player in Utilities.GetPlayers())
         {
             _kickMenu.AddMenuOption($"{player.PlayerName} [{player.Index}]", (controller, option) =>
@@ -144,16 +141,15 @@ public class Menu
                 if (parts.Length < 2) return;
                 var target = Utilities.GetPlayerFromIndex(int.Parse(parts[1]));
 
-                if (!target.IsValid)
+                if (target == null || !target.IsValid)
                 {
-                    _baseAdmin.PrintToChat(controller, "This player is invalid");
+                    _baseAdmin.PrintToChat(controller, _baseAdmin.Localizer["player.invalid"]);
                     return;
                 }
 
-                //_baseAdmin.KickClient($"{target.UserId}");
                 target.Kick("Kick");
 
-                _baseAdmin.PrintToChatAll($"{controller.PlayerName}: Player '{target.PlayerName}' has been kicked");
+                _baseAdmin.PrintToChatAll(_baseAdmin.Localizer["kick.msg", controller.PlayerName, target.PlayerName]);
             });
         }
     }
@@ -161,18 +157,18 @@ public class Menu
     private void CreateBanMenu()
     {
         _banMenu.MenuOptions.Clear();
-        _banMenu.AddMenuOption("Pick a player", (_, _) => { }, true);
+        _banMenu.AddMenuOption(_baseAdmin.Localizer["menu.pick_player"], (_, _) => { }, true);
         foreach (var player in Utilities.GetPlayers())
         {
-            _banMenu.AddMenuOption($"{player.PlayerName} [{player.Index}]", (controller, option) =>
+            _banMenu.AddMenuOption($"{player.PlayerName}[{player.Index}]", (controller, option) =>
             {
                 var parts = option.Text.Split('[', ']');
                 if (parts.Length < 2) return;
                 var target = Utilities.GetPlayerFromIndex(int.Parse(parts[1]));
 
-                if (!target.IsValid)
+                if (target == null || !target.IsValid)
                 {
-                    _baseAdmin.PrintToChat(controller, "This player is invalid");
+                    _baseAdmin.PrintToChat(controller, _baseAdmin.Localizer["player.invalid"]);
                     return;
                 }
 
@@ -184,13 +180,13 @@ public class Menu
     private void SelectionReasonsForBanning(CCSPlayerController player, CCSPlayerController target)
     {
         var reasonMenu = new ChatMenu(_baseAdmin.Prefix);
-        reasonMenu.AddMenuOption("Pick a reason", (_, _) => { }, true);
+        reasonMenu.AddMenuOption(_baseAdmin.Localizer["menu.pick_reason"], (_, _) => { }, true);
         foreach (var reason in _baseAdmin.ReadAllBanReasons())
         {
             reasonMenu.AddMenuOption(reason, (controller, option) =>
             {
                 var timeMenu = new ChatMenu(_baseAdmin.Prefix);
-                timeMenu.AddMenuOption("Select a time", (_, _) => { }, true);
+                timeMenu.AddMenuOption(_baseAdmin.Localizer["menu.select_time"], (_, _) => { }, true);
                 foreach (var time in _baseAdmin.ReadAllTime())
                 {
                     var split = time.Split(':');
@@ -201,20 +197,19 @@ public class Menu
                         });
                 }
 
-                ChatMenus.OpenMenu(controller, timeMenu);
+                MenuManager.OpenChatMenu(controller, timeMenu);
             });
         }
 
-        ChatMenus.OpenMenu(player, reasonMenu);
+        MenuManager.OpenChatMenu(player, reasonMenu);
     }
 
-    private void AddBanFromMenu(CCSPlayerController controller, CCSPlayerController target, string reason,
-        int time)
+    private void AddBanFromMenu(CCSPlayerController controller, CCSPlayerController target, string reason, int time)
     {
         var startBanTimeUnix = DateTime.UtcNow.GetUnixEpoch();
         var endBanTimeUnix = DateTime.UtcNow.AddSeconds(time).GetUnixEpoch();
 
-        var msg = _baseAdmin.Database.AddBan(new User
+        var user = new User
         {
             admin_username = controller.PlayerName,
             admin_steamid = new SteamID(controller.SteamID).SteamId2,
@@ -228,16 +223,23 @@ public class Menu
             start_ban_time = startBanTimeUnix,
             end_ban_time = time == 0 ? time : endBanTimeUnix,
             ban_active = true
-        }).Result;
-        //_baseAdmin.KickClient($"{target.UserId}");
-        target.Kick("Ban");
-        _baseAdmin.PrintToChatAll(msg);
+        };
+
+        Task.Run(async () =>
+        {
+            var msg = await _baseAdmin.Database.AddBan(user);
+            Server.NextFrame(() =>
+            {
+                if (target.IsValid) target.Kick(_baseAdmin.Localizer["ban"]);
+                _baseAdmin.PrintToChatAll(msg);
+            });
+        });
     }
 
     private void CreateMuteMenu()
     {
         _muteMenu.MenuOptions.Clear();
-        _muteMenu.AddMenuOption("Pick a player", (_, _) => { }, true);
+        _muteMenu.AddMenuOption(_baseAdmin.Localizer["menu.pick_player"], (_, _) => { }, true);
         foreach (var player in Utilities.GetPlayers())
         {
             _muteMenu.AddMenuOption($"{player.PlayerName} [{player.Index}]", (controller, option) =>
@@ -246,9 +248,9 @@ public class Menu
                 if (parts.Length < 2) return;
                 var target = Utilities.GetPlayerFromIndex(int.Parse(parts[1]));
 
-                if (!target.IsValid)
+                if (target == null || !target.IsValid)
                 {
-                    _baseAdmin.PrintToChat(controller, "This player is invalid");
+                    _baseAdmin.PrintToChat(controller, _baseAdmin.Localizer["player.invalid"]);
                     return;
                 }
 
@@ -260,68 +262,66 @@ public class Menu
     private void SelectionTypeMute(CCSPlayerController player, CCSPlayerController target)
     {
         var reasonMenu = new ChatMenu(_baseAdmin.Prefix);
-        reasonMenu.AddMenuOption("Pick a type", (_, _) => { }, true);
-        reasonMenu.AddMenuOption("All", (_, _) => { SelectionReasonsForMute(player, target, MuteType.All); });
-        reasonMenu.AddMenuOption("Mute",
+        reasonMenu.AddMenuOption(_baseAdmin.Localizer["menu.pick_type"], (_, _) => { }, true);
+        reasonMenu.AddMenuOption(_baseAdmin.Localizer["menu.all"], (_, _) => { SelectionReasonsForMute(player, target, MuteType.All); });
+        reasonMenu.AddMenuOption(_baseAdmin.Localizer["menu.mute"],
             (_, _) => { SelectionReasonsForMute(player, target, MuteType.Micro); });
-        reasonMenu.AddMenuOption("Gag",
+        reasonMenu.AddMenuOption(_baseAdmin.Localizer["menu.gag"],
             (_, _) => { SelectionReasonsForMute(player, target, MuteType.Chat); });
-        ChatMenus.OpenMenu(player, reasonMenu);
+        MenuManager.OpenChatMenu(player, reasonMenu);
     }
 
-    private void SelectionReasonsForMute(CCSPlayerController player, CCSPlayerController target,
-        MuteType muteType)
+    private void SelectionReasonsForMute(CCSPlayerController player, CCSPlayerController target, MuteType muteType)
     {
         var reasonMenu = new ChatMenu(_baseAdmin.Prefix);
-        reasonMenu.AddMenuOption("Pick a reason", (_, _) => { }, true);
+        reasonMenu.AddMenuOption(_baseAdmin.Localizer["menu.pick_reason"], (_, _) => { }, true);
         foreach (var reason in _baseAdmin.ReadAllMuteReasons())
         {
             reasonMenu.AddMenuOption(reason, (controller, option) =>
             {
                 var timeMenu = new ChatMenu(_baseAdmin.Prefix);
-                timeMenu.AddMenuOption("Select a time", (_, _) => { }, true);
+                timeMenu.AddMenuOption(_baseAdmin.Localizer["menu.select_time"], (_, _) => { }, true);
                 foreach (var time in _baseAdmin.ReadAllTime())
                 {
                     var split = time.Split(':');
                     timeMenu.AddMenuOption(split[0],
                         (playerController, _) =>
                         {
-                            AddMuteFromMenu(playerController, target, option.Text, int.Parse(split[1]), muteType);
+                            AddMuteFromMenu(playerController, target, muteType, option.Text, int.Parse(split[1]));
                         });
                 }
 
-                ChatMenus.OpenMenu(controller, timeMenu);
+                MenuManager.OpenChatMenu(controller, timeMenu);
             });
         }
 
-        ChatMenus.OpenMenu(player, reasonMenu);
+        MenuManager.OpenChatMenu(player, reasonMenu);
     }
 
-    private void AddMuteFromMenu(CCSPlayerController controller, CCSPlayerController target, string reason,
-        int time, MuteType muteType)
+    private void AddMuteFromMenu(CCSPlayerController controller, CCSPlayerController target, MuteType muteType, string reason, int time)
     {
         var startMuteTimeUnix = DateTime.UtcNow.GetUnixEpoch();
         var endMuteTimeUnix = DateTime.UtcNow.AddSeconds(time).GetUnixEpoch();
 
+        _ = _baseAdmin.Database.AddMute(new MuteUser
+        {
+            mute_type = (int)muteType,
+            admin_username = controller.PlayerName,
+            admin_steamid = new SteamID(controller.SteamID).SteamId2,
+            username = target.PlayerName,
+            steamid64 = target.SteamID,
+            steamid = new SteamID(target.SteamID).SteamId2,
+            reason = reason, 
+            unmute_reason = string.Empty,
+            admin_unlocked_username = string.Empty,
+            admin_unlocked_steamid = string.Empty,
+            start_mute_time = startMuteTimeUnix,
+            end_mute_time = time == 0 ? 0 : endMuteTimeUnix,
+            mute_active = true
+        }, controller);
+
         Server.NextFrame(() =>
         {
-            _baseAdmin.Database.AddMute(new MuteUser
-            {
-                mute_type = (int)muteType,
-                admin_username = controller != null ? controller.PlayerName : "Console",
-                admin_steamid = controller != null ? new SteamID(controller.SteamID).SteamId2 : "Console",
-                username = target.PlayerName,
-                steamid64 = target.SteamID,
-                steamid = new SteamID(target.SteamID).SteamId2,
-                reason = reason,
-                unmute_reason = "",
-                admin_unlocked_username = "",
-                admin_unlocked_steamid = "",
-                start_mute_time = startMuteTimeUnix,
-                end_mute_time = endMuteTimeUnix == 0 ? 0 : endMuteTimeUnix,
-                mute_active = true
-            }, controller == null ? null : controller);
-
             if (muteType is MuteType.Micro or MuteType.All)
                 target.VoiceFlags = VoiceFlags.Muted;
         });
@@ -332,15 +332,15 @@ public class Menu
     private void CreateChangeMapMenu()
     {
         _changeMapMenu.MenuOptions.Clear();
-        _changeMapMenu.AddMenuOption("Pick a map", (_, _) => { }, true);
+        _changeMapMenu.AddMenuOption(_baseAdmin.Localizer["menu.pick_map"], (_, _) => { }, true);
         foreach (var map in _baseAdmin.GetMapFromMaps())
         {
             var mapsStarts = map.StartsWith("ws:");
-            var mapName = mapsStarts ? map.Trim('w', 's', ':') : map;
+            var mapName = mapsStarts ? map.Substring(3) : map;
             _changeMapMenu.AddMenuOption($"{mapName}",
                 (controller, option) =>
                 {
-                    _baseAdmin.PrintToChatAll($"{controller.PlayerName}: changing the map to {mapName}");
+                    _baseAdmin.PrintToChatAll(_baseAdmin.Localizer["map.changing", controller.PlayerName, mapName]);
                     _baseAdmin.AddTimer(3.0f, () => _baseAdmin.ChangeMap(mapName, mapsStarts));
                 });
         }
@@ -349,7 +349,7 @@ public class Menu
     private void CreateAddAdminMenu()
     {
         _addAdminMenu.MenuOptions.Clear();
-        _addAdminMenu.AddMenuOption("Pick a player", (_, _) => { }, true);
+        _addAdminMenu.AddMenuOption(_baseAdmin.Localizer["menu.pick_player"], (_, _) => { }, true);
         foreach (var player in Utilities.GetPlayers())
         {
             if (_baseAdmin.IsAdmin(player.Index)) continue;
@@ -361,9 +361,9 @@ public class Menu
                     if (parts.Length < 2) return;
                     var target = Utilities.GetPlayerFromIndex(int.Parse(parts[1]));
 
-                    if (!target.IsValid)
+                    if (target == null || !target.IsValid)
                     {
-                        _baseAdmin.PrintToChat(controller, "This player is invalid");
+                        _baseAdmin.PrintToChat(controller, _baseAdmin.Localizer["player.invalid"]);
                         return;
                     }
 
@@ -375,44 +375,43 @@ public class Menu
     private void SelectionTimeAndImmunityForAddAdmin(CCSPlayerController player, CCSPlayerController target)
     {
         var timeMenu = new ChatMenu(_baseAdmin.Prefix);
-        timeMenu.AddMenuOption("Select a time", (_, _) => { }, true);
+        timeMenu.AddMenuOption(_baseAdmin.Localizer["menu.select_time"], (_, _) => { }, true);
         foreach (var time in _baseAdmin.ReadAllTime())
         {
             var split = time.Split(':');
             timeMenu.AddMenuOption(split[0], (playerController, _) =>
             {
                 var immunityMenu = new ChatMenu(_baseAdmin.Prefix);
-                immunityMenu.AddMenuOption("Choice of immunity", (_, _) => { }, true);
+                immunityMenu.AddMenuOption(_baseAdmin.Localizer["menu.pick_immunity"], (_, _) => { }, true);
                 foreach (var immunity in _baseAdmin.ReadAllImmunity())
                 {
                     immunityMenu.AddMenuOption(immunity,
                         (client, _) =>
                         {
-                            AddAdminFromMenu(client, target, int.Parse(immunity), int.Parse(split[1]));
+                            AddAdminFromMenu(client, target, int.Parse(immunity), "", int.Parse(split[1]));
                         });
                 }
 
-                ChatMenus.OpenMenu(playerController, immunityMenu);
+                MenuManager.OpenChatMenu(playerController, immunityMenu);
             });
         }
 
-        ChatMenus.OpenMenu(player, timeMenu);
+        MenuManager.OpenChatMenu(player, timeMenu);
     }
 
-    private void AddAdminFromMenu(CCSPlayerController client, CCSPlayerController target,
-        int immunity, int time)
+    private void AddAdminFromMenu(CCSPlayerController controller, CCSPlayerController target, int immunity, string flags, int time)
     {
         var startTimeUnix = DateTime.UtcNow.GetUnixEpoch();
         var endTimeUnix = DateTime.UtcNow.AddSeconds(time).GetUnixEpoch();
 
-        _baseAdmin.Database.AddAdmin(new Admins
+        _ = _baseAdmin.Database.AddAdmin(new Admins
         {
             username = target.PlayerName,
             steamid = new SteamID(target.SteamID).SteamId2,
             start_time = startTimeUnix,
-            end_time = time == 0 ? time : endTimeUnix,
+            end_time = time == 0 ? 0 : endTimeUnix,
             immunity = immunity,
-            flags = "s"
-        }, client, true);
+            flags = flags
+        }, controller);
     }
 }

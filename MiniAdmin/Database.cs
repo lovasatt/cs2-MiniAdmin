@@ -119,7 +119,7 @@ public class Database
         {
             var isUserBanned = await IsUserBanned(user.steamid);
             if (isUserBanned)
-                return $"The user with the SteamId identifier {user.steamid} has already been banned.";
+                return _baseAdmin.Localizer["db.ban.already_banned", user.steamid];
 
             await using var connection = new MySqlConnection(_dbConnectionString);
 
@@ -128,7 +128,7 @@ public class Database
                 VALUES (@admin_username, @admin_steamid, @username, @steamid64, @steamid, @reason, @unban_reason, @admin_unlocked_username, @admin_unlocked_steamid, @start_ban_time, @end_ban_time, @ban_active);
                 ", user);
 
-            return $"Player '{user.username} | [{user.steamid}]' is banned";
+            return _baseAdmin.Localizer["db.ban.success", user.username, user.steamid];
         }
         catch (Exception e)
         {
@@ -151,14 +151,14 @@ public class Database
                 if (activeUserMute.mute_type == user.mute_type)
                 {
                     Server.NextFrame(() =>
-                        _baseAdmin.ReplyToCommand(controller, "The user already has sound or chat disabled"));
+                        _baseAdmin.ReplyToCommand(controller, _baseAdmin.Localizer["db.mute.already_disabled"]));
                     return;
                 }
 
                 if (activeUserMute.mute_type == 2 || user.mute_type == 2)
                 {
                     Server.NextFrame(() => _baseAdmin.ReplyToCommand(controller,
-                        $"The user with the SteamId identifier {user.steamid} has already been muted in all channels."));
+                        _baseAdmin.Localizer["db.mute.already_muted_all", user.steamid]));
                     return;
                 }
 
@@ -184,7 +184,7 @@ public class Database
                 ", user);
 
                 Server.NextFrame(() => _baseAdmin.ReplyToCommand(controller,
-                    $"Player '{user.username} | [{user.steamid}]' mute has been updated."));
+                    _baseAdmin.Localizer["db.mute.updated", user.username, user.steamid]));
                 return;
             }
 
@@ -194,7 +194,7 @@ public class Database
             ", user);
 
             Server.NextFrame(() =>
-                _baseAdmin.ReplyToCommand(controller, $"Player '{user.username} | [{user.steamid}]' is muted."));
+                _baseAdmin.ReplyToCommand(controller, _baseAdmin.Localizer["db.mute.success", user.username, user.steamid]));
         }
         catch (Exception e)
         {
@@ -216,7 +216,7 @@ public class Database
                 {
                     if (player != null)
                         Server.NextFrame(() => _baseAdmin.PrintToChat(player,
-                            $"An administrator with the SteamId identifier {admin.steamid} already exists."));
+                            _baseAdmin.Localizer["db.admin.already_exists", admin.steamid]));
                 }
 
                 return;
@@ -238,7 +238,7 @@ public class Database
                 {
                     Server.NextFrame(() =>
                         _baseAdmin.PrintToChat(player,
-                            $"Admin '{admin.username}[{admin.steamid}]' successfully added"));
+                            _baseAdmin.Localizer["db.admin.added", admin.username, admin.steamid]));
                 }
             }
         }
@@ -376,7 +376,7 @@ public class Database
                 "SELECT * FROM miniadmin_bans WHERE steamid = @SteamId AND ban_active = 1",
                 new { SteamId = steamId });
 
-            if (user == null) return "User not found or not currently banned";
+            if (user == null) return _baseAdmin.Localizer["db.unban.not_found"];
 
             user.unban_reason = reason;
             user.admin_unlocked_username = adminName;
@@ -390,7 +390,7 @@ public class Database
                     WHERE steamid = @SteamId AND ban_active = 1
                     ", user);
 
-            return $"Player {steamId} has been successfully unblocked with reason: {reason}";
+            return _baseAdmin.Localizer["db.unban.success", steamId, reason];
         }
         catch (Exception e)
         {
@@ -411,7 +411,7 @@ public class Database
                 "SELECT * FROM miniadmin_mute WHERE steamid = @SteamId AND mute_active = 1",
                 new { SteamId = steamId });
 
-            if (user == null) return "User not found or not currently muted";
+            if (user == null) return _baseAdmin.Localizer["db.unmute.not_found"];
 
             user.unmute_reason = reason;
             user.admin_unlocked_username = adminName;
@@ -443,7 +443,7 @@ public class Database
                         mute_active = 1
                     ", user);
 
-            return $"Player {steamId} has been successfully unmuted with reason: {reason}";
+            return _baseAdmin.Localizer["db.unmute.success", steamId, reason];
         }
         catch (Exception e)
         {
@@ -477,9 +477,9 @@ public class Database
     {
         await using var connection = new MySqlConnection(_dbConnectionString);
 
-        var existingBan = connection.QueryFirstOrDefaultAsync<User>(
+        var existingBan = await connection.QueryFirstOrDefaultAsync<User>(
             "SELECT * FROM miniadmin_bans WHERE steamid = @SteamId AND ban_active = 1",
-            new { SteamId = steamId }).Result;
+            new { SteamId = steamId });
 
         return existingBan != null;
     }
@@ -488,9 +488,9 @@ public class Database
     {
         await using var connection = new MySqlConnection(_dbConnectionString);
 
-        var existingMute = connection.QueryFirstOrDefaultAsync<MuteUser>(
+        var existingMute = await connection.QueryFirstOrDefaultAsync<MuteUser>(
             "SELECT * FROM miniadmin_mute WHERE steamid = @SteamId AND mute_active = 1",
-            new { SteamId = steamId }).Result;
+            new { SteamId = steamId });
 
         return existingMute != null;
     }
@@ -499,21 +499,10 @@ public class Database
     {
         await using var connection = new MySqlConnection(_dbConnectionString);
 
-        var existingAdmin = connection.QueryFirstOrDefaultAsync<Admins>(
+        var existingAdmin = await connection.QueryFirstOrDefaultAsync<Admins>(
             "SELECT * FROM miniadmin_admins WHERE steamid = @SteamId",
-            new { SteamId = steamId }).Result;
+            new { SteamId = steamId });
 
         return existingAdmin;
     }
-
-    // private async Task<bool> IsAdminExist(string steamId)
-    // {
-    //     await using var connection = new MySqlConnection(_dbConnectionString);
-    //
-    //     var existingAdmin = connection.QueryFirstOrDefaultAsync<Admins>(
-    //         "SELECT * FROM miniadmin_admins WHERE steamid = @SteamId",
-    //         new { SteamId = steamId }).Result;
-    //
-    //     return existingAdmin != null;
-    // }
 }
