@@ -20,16 +20,23 @@ public class Database
         _dbConnectionString = dbConnectionString;
     }
 
+    public async Task InitializeDatabaseAsync()
+    {
+        await CreateTable();
+        await CreateAdminsTable();
+        await CreateMuteTable();
+    }
+
     public async Task CreateTable()
     {
         try
         {
             await using var dbConnection = new MySqlConnection(_dbConnectionString);
-            dbConnection.Open();
+            await dbConnection.OpenAsync();
 
             var createBansTable = @"
                 CREATE TABLE IF NOT EXISTS `miniadmin_bans` (
-                    `id` INT AUTO_INCREMENT PRIMARY KEY,
+                    `id` INT AUTO_INCREMENT,
                     `admin_username` VARCHAR(255) NOT NULL,
                     `admin_steamid` VARCHAR(255) NOT NULL,
                     `username` VARCHAR(255) NOT NULL,
@@ -41,8 +48,11 @@ public class Database
                     `admin_unlocked_steamid` VARCHAR(255) NOT NULL,
                     `start_ban_time` BIGINT NOT NULL,
                     `end_ban_time` BIGINT NOT NULL,
-                    `ban_active` BOOLEAN NOT NULL
-            );";
+                    `ban_active` BOOLEAN NOT NULL,
+                    PRIMARY KEY (`id`),
+                    KEY `idx_bans_lookup` (`steamid64`, `ban_active`),
+                    KEY `idx_bans_steamid_active` (`steamid`, `ban_active`)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;";
 
             await dbConnection.ExecuteAsync(createBansTable);
         }
@@ -57,19 +67,20 @@ public class Database
         try
         {
             await using var connection = new MySqlConnection(_dbConnectionString);
-
-            connection.Open();
+            await connection.OpenAsync();
 
             var createAdminsTable = @"
                 CREATE TABLE IF NOT EXISTS `miniadmin_admins` (
-                    `id` INT AUTO_INCREMENT PRIMARY KEY,
+                    `id` INT AUTO_INCREMENT,
                     `username` VARCHAR(255) NOT NULL,
                     `steamid` VARCHAR(255) NOT NULL,
                     `start_time` BIGINT NOT NULL,
                     `end_time` BIGINT NOT NULL,
                     `immunity` INT NOT NULL,
-                    `flags` VARCHAR(255) NOT NULL
-            );";
+                    `flags` VARCHAR(255) NOT NULL,
+                    PRIMARY KEY (`id`),
+                    UNIQUE KEY `idx_admin_steamid` (`steamid`)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;";
 
             await connection.ExecuteAsync(createAdminsTable);
         }
@@ -84,12 +95,11 @@ public class Database
         try
         {
             await using var connection = new MySqlConnection(_dbConnectionString);
-
-            connection.Open();
+            await connection.OpenAsync();
 
             var createMuteTable = @"
                 CREATE TABLE IF NOT EXISTS `miniadmin_mute` (
-                    `id` INT AUTO_INCREMENT PRIMARY KEY,
+                    `id` INT AUTO_INCREMENT,
                     `mute_type` INT NOT NULL,
                     `admin_username` VARCHAR(255) NOT NULL,
                     `admin_steamid` VARCHAR(255) NOT NULL,
@@ -102,8 +112,11 @@ public class Database
                     `admin_unlocked_steamid` VARCHAR(255) NOT NULL,
                     `start_mute_time` BIGINT NOT NULL,
                     `end_mute_time` BIGINT NOT NULL,
-                    `mute_active` BOOLEAN NOT NULL
-            );";
+                    `mute_active` BOOLEAN NOT NULL,
+                    PRIMARY KEY (`id`),
+                    KEY `idx_mute_lookup` (`steamid64`, `mute_active`),
+                    KEY `idx_mute_steamid_active` (`steamid`, `mute_active`)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;";
 
             await connection.ExecuteAsync(createMuteTable);
         }
@@ -113,29 +126,31 @@ public class Database
         }
     }
 
-    public async Task<string> AddBan(User user)
+    public async Task<(bool Success, string Message)> AddBan(User user)
     {
         try
         {
             var isUserBanned = await IsUserBanned(user.steamid);
             if (isUserBanned)
-                return _baseAdmin.Localizer["db.ban.already_banned", user.steamid];
+                return (false, _baseAdmin.Localizer["db.ban.already_banned", user.steamid]);
 
             await using var connection = new MySqlConnection(_dbConnectionString);
 
-            await connection.ExecuteAsync(@"
+            var affectedRows = await connection.ExecuteAsync(@"
                 INSERT INTO miniadmin_bans (admin_username, admin_steamid, username, steamid64, steamid, reason, unban_reason, admin_unlocked_username, admin_unlocked_steamid, start_ban_time, end_ban_time, ban_active)
                 VALUES (@admin_username, @admin_steamid, @username, @steamid64, @steamid, @reason, @unban_reason, @admin_unlocked_username, @admin_unlocked_steamid, @start_ban_time, @end_ban_time, @ban_active);
                 ", user);
 
-            return _baseAdmin.Localizer["db.ban.success", user.username, user.steamid];
+            if (affectedRows != 1)
+                return (false, _baseAdmin.Localizer["db.ban.failed"]);
+
+            return (true, _baseAdmin.Localizer["db.ban.success", user.username, user.steamid]);
         }
         catch (Exception e)
         {
             Console.WriteLine(e);
+            return (false, _baseAdmin.Localizer["db.ban.error"]);
         }
-
-        return string.Empty;
     }
 
     public async Task AddMute(MuteUser user, CCSPlayerController? controller)
@@ -143,11 +158,19 @@ public class Database
         try
         {
             await using var connection = new MySqlConnection(_dbConnectionString);
+            await connection.OpenAsync();
 
             var activeUserMute = await GetActiveMuteAsync(user.steamid);
 
             if (activeUserMute != null)
             {
+                if (activeUserMute.mute_type == (int)BaseAdmin.MuteType.All)
+                {
+                    Server.NextFrame(() => _baseAdmin.ReplyToCommand(controller,
+                        _baseAdmin.Localizer["db.mute.already_muted_all", user.steamid]));
+                    return;
+                }
+
                 if (activeUserMute.mute_type == user.mute_type)
                 {
                     Server.NextFrame(() =>
@@ -155,15 +178,11 @@ public class Database
                     return;
                 }
 
-                if (activeUserMute.mute_type == 2 || user.mute_type == 2)
-                {
-                    Server.NextFrame(() => _baseAdmin.ReplyToCommand(controller,
-                        _baseAdmin.Localizer["db.mute.already_muted_all", user.steamid]));
-                    return;
-                }
-
-                if (activeUserMute.mute_type is 1 or 0 && user.mute_type is 1 or 0)
-                    user.mute_type = 2;
+                user.id = activeUserMute.id;
+                user.mute_type = (int)BaseAdmin.MuteType.All;
+                user.end_mute_time = activeUserMute.end_mute_time == 0 || user.end_mute_time == 0
+                    ? 0
+                    : Math.Max(activeUserMute.end_mute_time, user.end_mute_time);
 
                 await connection.ExecuteAsync(@"
                 UPDATE miniadmin_mute
@@ -180,8 +199,7 @@ public class Database
                     start_mute_time = @start_mute_time,
                     end_mute_time = @end_mute_time,
                     mute_active = @mute_active
-                WHERE steamid = @steamid and mute_active = 1;
-                ", user);
+                WHERE id = @id;", user);
 
                 Server.NextFrame(() => _baseAdmin.ReplyToCommand(controller,
                     _baseAdmin.Localizer["db.mute.updated", user.username, user.steamid]));
@@ -199,6 +217,7 @@ public class Database
         catch (Exception e)
         {
             Console.WriteLine(e);
+            Server.NextFrame(() => _baseAdmin.ReplyToCommand(controller, _baseAdmin.Localizer["db.error"]));
         }
     }
 
@@ -313,7 +332,6 @@ public class Database
         }
     }
 
-
     public async Task<string> DeleteExpiredAdminsAsync()
     {
         try
@@ -352,15 +370,28 @@ public class Database
         try
         {
             await using var connection = new MySqlConnection(_dbConnectionString);
+            await connection.OpenAsync();
 
-            await connection.ExecuteAsync(@"DELETE FROM miniadmin_admins WHERE steamid = @SteamId;",
-                new { SteamId = steamId });
+            var raw = steamId.Trim('"', '\'', ' ');
+            string s0 = raw;
+            string s1 = raw;
+
+            if (Utils.TryParseSteamId(raw, out _, out var parsed2))
+            {
+                s1 = parsed2;
+                s0 = "STEAM_0:" + parsed2.Substring(8);
+            }
+
+            await connection.ExecuteAsync(@"
+                DELETE FROM miniadmin_admins 
+                WHERE (steamid = @Raw OR steamid = @S0 OR steamid = @S1);",
+                new { Raw = raw, S0 = s0, S1 = s1 });
 
             _baseAdmin.PrintLogInfo("Admin {steamId} successfully deleted", steamId);
         }
         catch (Exception e)
         {
-            Console.WriteLine(e);
+            _baseAdmin.PrintLogError(e.ToString());
         }
 
         return string.Empty;
@@ -371,33 +402,54 @@ public class Database
         try
         {
             await using var connection = new MySqlConnection(_dbConnectionString);
+            await connection.OpenAsync();
 
-            var user = await connection.QueryFirstOrDefaultAsync<User>(
-                "SELECT * FROM miniadmin_bans WHERE steamid = @SteamId AND ban_active = 1",
-                new { SteamId = steamId });
+            var raw = steamId.Trim('"', '\'', ' ');
+            ulong id64 = 0;
+            string s0 = raw;
+            string s1 = raw;
+
+            if (Utils.TryParseSteamId(raw, out var parsed64, out var parsed2))
+            {
+                id64 = parsed64;
+                s1 = parsed2;
+                s0 = "STEAM_0:" + parsed2.Substring(8);
+            }
+            else if (ulong.TryParse(raw, out var num64))
+            {
+                id64 = num64;
+            }
+
+            var user = await connection.QueryFirstOrDefaultAsync<User>(@"
+                SELECT * FROM miniadmin_bans 
+                WHERE (steamid = @Raw OR steamid = @S0 OR steamid = @S1 OR (steamid64 != 0 AND steamid64 = @Id64))
+                  AND ban_active = 1
+                LIMIT 1;",
+                new { Raw = raw, S0 = s0, S1 = s1, Id64 = id64 });
 
             if (user == null) return _baseAdmin.Localizer["db.unban.not_found"];
 
-            user.unban_reason = reason;
+            user.unban_reason = string.IsNullOrWhiteSpace(reason) ? "none" : reason;
             user.admin_unlocked_username = adminName;
             user.admin_unlocked_steamid = adminSteamId;
             user.ban_active = false;
 
             await connection.ExecuteAsync(@"
-                    UPDATE miniadmin_bans
-                    SET unban_reason = @unban_reason, admin_unlocked_username = @admin_unlocked_username,
-                        admin_unlocked_steamid = @admin_unlocked_steamid, ban_active = @ban_active
-                    WHERE steamid = @SteamId AND ban_active = 1
-                    ", user);
+                UPDATE miniadmin_bans
+                SET unban_reason = @unban_reason, 
+                    admin_unlocked_username = @admin_unlocked_username,
+                    admin_unlocked_steamid = @admin_unlocked_steamid, 
+                    ban_active = 0
+                WHERE id = @id;", user);
 
-            return _baseAdmin.Localizer["db.unban.success", steamId, reason];
+            return _baseAdmin.Localizer["db.unban.success", raw, user.unban_reason];
         }
         catch (Exception e)
         {
-            Console.WriteLine(e);
+            _baseAdmin.PrintLogError(e.ToString());
         }
 
-        return string.Empty;
+        return _baseAdmin.Localizer["db.error"];
     }
 
     public async Task<string> UnmuteUser(int unmuteType, string adminName, string adminSteamId, string steamId,
@@ -406,51 +458,75 @@ public class Database
         try
         {
             await using var connection = new MySqlConnection(_dbConnectionString);
+            await connection.OpenAsync();
 
-            var user = await connection.QueryFirstOrDefaultAsync<MuteUser>(
-                "SELECT * FROM miniadmin_mute WHERE steamid = @SteamId AND mute_active = 1",
-                new { SteamId = steamId });
+            var raw = steamId.Trim('"', '\'', ' ');
+            ulong id64 = 0;
+            string s0 = raw;
+            string s1 = raw;
+
+            if (Utils.TryParseSteamId(raw, out var parsed64, out var parsed2))
+            {
+                id64 = parsed64;
+                s1 = parsed2;
+                s0 = "STEAM_0:" + parsed2.Substring(8);
+            }
+            else if (ulong.TryParse(raw, out var num64))
+            {
+                id64 = num64;
+            }
+
+            var user = await connection.QueryFirstOrDefaultAsync<MuteUser>(@"
+                SELECT * FROM miniadmin_mute 
+                WHERE (steamid = @Raw OR steamid = @S0 OR steamid = @S1 OR (steamid64 != 0 AND steamid64 = @Id64))
+                  AND mute_active = 1
+                LIMIT 1;",
+                new { Raw = raw, S0 = s0, S1 = s1, Id64 = id64 });
 
             if (user == null) return _baseAdmin.Localizer["db.unmute.not_found"];
 
-            user.unmute_reason = reason;
+            user.unmute_reason = string.IsNullOrWhiteSpace(reason) ? "none" : reason;
             user.admin_unlocked_username = adminName;
             user.admin_unlocked_steamid = adminSteamId;
 
-            if (unmuteType != -1)
+            if (unmuteType == -1 || unmuteType == (int)BaseAdmin.MuteType.All)
             {
-                if (user.mute_type is 2 && unmuteType is 0)
-                    user.mute_type = 1;
-                else if (user.mute_type is 2 && unmuteType is 1)
-                    user.mute_type = 0;
-                else if (user.mute_type == unmuteType)
-                    user.mute_active = false;
+                user.mute_active = false;
+            }
+            else if (user.mute_type == (int)BaseAdmin.MuteType.All)
+            {
+                if (unmuteType == (int)BaseAdmin.MuteType.Micro)
+                    user.mute_type = (int)BaseAdmin.MuteType.Chat;
+                else if (unmuteType == (int)BaseAdmin.MuteType.Chat)
+                    user.mute_type = (int)BaseAdmin.MuteType.Micro;
+            }
+            else if (user.mute_type == unmuteType)
+            {
+                user.mute_active = false;
             }
             else
-                user.mute_active = false;
+            {
+                return _baseAdmin.Localizer["db.unmute.not_found"];
+            }
 
             await connection.ExecuteAsync(@"
-                    UPDATE miniadmin_mute
-                    SET 
-                        mute_type = @mute_type,
-                        unmute_reason = @unmute_reason, 
-                        admin_unlocked_username = @admin_unlocked_username,
-                        admin_unlocked_steamid = @admin_unlocked_steamid, 
-                        mute_active = @mute_active
-                    WHERE 
-                        steamid = @SteamId 
-                      AND
-                        mute_active = 1
-                    ", user);
+                UPDATE miniadmin_mute
+                SET 
+                    mute_type = @mute_type,
+                    unmute_reason = @unmute_reason, 
+                    admin_unlocked_username = @admin_unlocked_username,
+                    admin_unlocked_steamid = @admin_unlocked_steamid, 
+                    mute_active = @mute_active
+                WHERE id = @id;", user);
 
-            return _baseAdmin.Localizer["db.unmute.success", steamId, reason];
+            return _baseAdmin.Localizer["db.unmute.success", raw, user.unmute_reason];
         }
         catch (Exception e)
         {
-            Console.WriteLine(e);
+            _baseAdmin.PrintLogError(e.ToString());
         }
 
-        return string.Empty;
+        return _baseAdmin.Localizer["db.error"];
     }
 
     public async Task<MuteUser?> GetActiveMuteAsync(string steamId)
@@ -458,17 +534,53 @@ public class Database
         try
         {
             await using var connection = new MySqlConnection(_dbConnectionString);
+            await connection.OpenAsync();
+
+            var raw = steamId.Trim('"', '\'', ' ');
+            ulong id64 = 0;
+            string s0 = raw;
+            string s1 = raw;
+
+            if (Utils.TryParseSteamId(raw, out var parsed64, out var parsed2))
+            {
+                id64 = parsed64;
+                s1 = parsed2;
+                s0 = "STEAM_0:" + parsed2.Substring(8);
+            }
+            else if (ulong.TryParse(raw, out var num64))
+            {
+                id64 = num64;
+            }
 
             var muteData = await connection.QueryFirstOrDefaultAsync<MuteUser>(@"
-            SELECT * FROM miniadmin_mute
-            WHERE steamid = @SteamId AND mute_active = 1;
-            ", new { SteamId = steamId });
+                SELECT * FROM miniadmin_mute 
+                WHERE (steamid = @Raw OR steamid = @S0 OR steamid = @S1 OR (steamid64 != 0 AND steamid64 = @Id64)) 
+                  AND mute_active = 1
+                LIMIT 1;",
+                new { Raw = raw, S0 = s0, S1 = s1, Id64 = id64 });
+
+            if (muteData == null) return null;
+
+            var now = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+            if (muteData.end_mute_time != 0 && muteData.end_mute_time <= now)
+            {
+                await connection.ExecuteAsync(@"
+                    UPDATE miniadmin_mute 
+                    SET mute_active = 0, 
+                        unmute_reason = @Reason,
+                        admin_unlocked_username = 'Console',
+                        admin_unlocked_steamid = 'Console'
+                    WHERE id = @Id;",
+                    new { Reason = _baseAdmin.Localizer["unban.deadline_passed"].Value, Id = muteData.id });
+
+                return null;
+            }
 
             return muteData;
         }
         catch (Exception e)
         {
-            Console.WriteLine(e);
+            _baseAdmin.PrintLogError(e.ToString());
             return null;
         }
     }
@@ -476,33 +588,86 @@ public class Database
     private async Task<bool> IsUserBanned(string steamId)
     {
         await using var connection = new MySqlConnection(_dbConnectionString);
+        await connection.OpenAsync();
 
-        var existingBan = await connection.QueryFirstOrDefaultAsync<User>(
-            "SELECT * FROM miniadmin_bans WHERE steamid = @SteamId AND ban_active = 1",
-            new { SteamId = steamId });
+        var raw = steamId.Trim('"', '\'', ' ');
+        ulong id64 = 0;
+        string s0 = raw;
+        string s1 = raw;
 
-        return existingBan != null;
+        if (Utils.TryParseSteamId(raw, out var parsed64, out var parsed2))
+        {
+            id64 = parsed64;
+            s1 = parsed2;
+            s0 = "STEAM_0:" + parsed2.Substring(8);
+        }
+        else if (ulong.TryParse(raw, out var num64))
+        {
+            id64 = num64;
+        }
+
+        var existingBan = await connection.QueryFirstOrDefaultAsync<User>(@"
+            SELECT * FROM miniadmin_bans 
+            WHERE (steamid = @Raw OR steamid = @S0 OR steamid = @S1 OR (steamid64 != 0 AND steamid64 = @Id64))
+              AND ban_active = 1
+            LIMIT 1;",
+            new { Raw = raw, S0 = s0, S1 = s1, Id64 = id64 });
+
+        if (existingBan == null) return false;
+
+        var now = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+        if (existingBan.end_ban_time != 0 && existingBan.end_ban_time <= now)
+        {
+            await connection.ExecuteAsync(@"
+                UPDATE miniadmin_bans 
+                SET ban_active = 0, 
+                    unban_reason = @Reason,
+                    admin_unlocked_username = 'Console',
+                    admin_unlocked_steamid = 'Console'
+                WHERE id = @Id;",
+                new { Reason = _baseAdmin.Localizer["unban.deadline_passed"].Value, Id = existingBan.id });
+
+            return false;
+        }
+
+        return true;
     }
 
     public async Task<bool> IsUserMuted(string steamId)
     {
-        await using var connection = new MySqlConnection(_dbConnectionString);
-
-        var existingMute = await connection.QueryFirstOrDefaultAsync<MuteUser>(
-            "SELECT * FROM miniadmin_mute WHERE steamid = @SteamId AND mute_active = 1",
-            new { SteamId = steamId });
-
-        return existingMute != null;
+        var mute = await GetActiveMuteAsync(steamId);
+        return mute != null;
     }
 
     public async Task<Admins?> GetAdminFromDb(string steamId)
     {
-        await using var connection = new MySqlConnection(_dbConnectionString);
+        try
+        {
+            await using var connection = new MySqlConnection(_dbConnectionString);
+            await connection.OpenAsync();
 
-        var existingAdmin = await connection.QueryFirstOrDefaultAsync<Admins>(
-            "SELECT * FROM miniadmin_admins WHERE steamid = @SteamId",
-            new { SteamId = steamId });
+            var raw = steamId.Trim('"', '\'', ' ');
+            string s0 = raw;
+            string s1 = raw;
 
-        return existingAdmin;
+            if (Utils.TryParseSteamId(raw, out _, out var parsed2))
+            {
+                s1 = parsed2;
+                s0 = "STEAM_0:" + parsed2.Substring(8);
+            }
+
+            var existingAdmin = await connection.QueryFirstOrDefaultAsync<Admins>(@"
+                SELECT * FROM miniadmin_admins 
+                WHERE (steamid = @Raw OR steamid = @S0 OR steamid = @S1)
+                LIMIT 1;",
+                new { Raw = raw, S0 = s0, S1 = s1 });
+
+            return existingAdmin;
+        }
+        catch (Exception e)
+        {
+            _baseAdmin.PrintLogError(e.ToString());
+            return null;
+        }
     }
 }
